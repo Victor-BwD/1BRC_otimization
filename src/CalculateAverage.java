@@ -2,7 +2,6 @@ import java.io.*;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.Map;
-import java.util.Scanner;
 import java.util.SortedMap;
 import java.util.TreeMap;
 
@@ -12,10 +11,7 @@ public class CalculateAverage {
     private static final double count = 0.0;
 
     private long parseTemperature(String temperatureStr) {
-        boolean isNegative = false;
-        if (temperatureStr.charAt(0) == '-') {
-            isNegative = true;
-        }
+        boolean isNegative = temperatureStr.charAt(0) == '-';
 
         int valor_total = 0;
 
@@ -33,25 +29,61 @@ public class CalculateAverage {
         return temperature;
     }
 
-    private Map<String, Long[]> readArchive(Path path) throws FileNotFoundException {
+    private Map<String, Long[]> readArchive(Path path) throws IOException {
         SortedMap<String, Long[]> resultMap = new TreeMap<>();
-        File file = path.toFile();
-        BufferedReader reader = new BufferedReader(new FileReader(file));
 
-        try (reader) {
-            String line;
-            while ((line = reader.readLine()) != null) {
-                int positionToCrack = line.indexOf(';');
-                String city = line.substring(0, positionToCrack);
-                long temperature = parseTemperature(line.substring(positionToCrack +1));
-                Long[] stats = resultMap.getOrDefault(city, new Long[]{Long.MAX_VALUE, Long.MIN_VALUE, 0L, 0L});
-                stats[0] = Math.min(stats[0], temperature);
-                stats[1] = Math.max(stats[1], temperature);
-                stats[2] += temperature;
-                stats[3] += 1;
-                resultMap.put(city, stats);
+        try(FileInputStream fileInputStream = new FileInputStream(path.toFile())) {
+            byte[] buffer = new byte[8192]; // 8KB
+            int readedBytes = 0;
+
+            boolean isReadingCity = true;
+            long actualTemperature = 0;
+            boolean isNegative = false;
+
+            ByteArrayOutputStream cityBuffer = new ByteArrayOutputStream();
+
+            while((readedBytes = fileInputStream.read(buffer)) != -1) {
+                for (int i = 0; i < readedBytes; i++) {
+                    byte b = buffer[i];
+
+                    if(isReadingCity) {
+                        if(b == 59) { // ';'
+                            isReadingCity = false;
+                        }else{
+                            cityBuffer.write(b);
+
+                        }
+                    }else{
+                        if (b == 10) { // '\n' (FIM DA LINHA)
+                            long finalTemperature = isNegative ? -actualTemperature : actualTemperature;
+                            String city = cityBuffer.toString();
+
+                            Long[] stats = resultMap.getOrDefault(city, new Long[]{Long.MAX_VALUE, Long.MIN_VALUE, 0L, 0L});
+                            stats[0] = Math.min(stats[0], finalTemperature);
+                            stats[1] = Math.max(stats[1], finalTemperature);
+                            stats[2] += finalTemperature;
+                            stats[3] += 1;
+                            resultMap.put(city, stats);
+
+                            isReadingCity = true;
+                            cityBuffer.reset();
+                            actualTemperature = 0;
+                            isNegative = false;
+
+                        } else if (b == 45) { // '-'
+                            isNegative = true;
+
+                        } else if (b != 46) { // ('.')
+                            int digit = b - '0';
+                            actualTemperature = (actualTemperature * 10) + digit;
+                        }
+                    }
+
+                }
             }
-        } catch (IOException e) {
+
+
+        }catch (IOException e) {
             throw new RuntimeException(e);
         }
 
@@ -59,7 +91,7 @@ public class CalculateAverage {
     }
 
 
-    public static void main(String[] args) throws FileNotFoundException {
+    public static void main(String[] args) throws IOException {
         CalculateAverage calculateAverage = new CalculateAverage();
         long startTime = System.nanoTime();
         Map<String, Long[]> archive = calculateAverage.readArchive(FILE_PATH);
